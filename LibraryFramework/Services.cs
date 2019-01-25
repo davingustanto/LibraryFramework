@@ -2,8 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
-using System.Data.Odbc;
 using System.Data.SqlClient;
 using System.Diagnostics;
 using System.Globalization;
@@ -11,11 +9,12 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Formatting;
 using System.Reflection;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
+using System.Web.Http.Filters;
 
 namespace LibraryFramework
 {
@@ -32,7 +31,7 @@ namespace LibraryFramework
         {
 
         }
-        
+
         #region Security Encrypt Decrypt
         public static string Encrypt(string plainText, string passPhrase)
         {
@@ -191,7 +190,7 @@ namespace LibraryFramework
                 return false;
             }
         }
-        
+
         public static string GetIPAddress(string HostNameAddress)
         {
             string IPv4 = string.Empty;
@@ -237,7 +236,7 @@ namespace LibraryFramework
             return sb.ToString();
         }
 
-        protected virtual bool IsFileClose(FileInfo file_info)
+        public virtual bool IsFileClose(FileInfo file_info)
         {
             FileStream stream = null;
             try
@@ -305,9 +304,36 @@ namespace LibraryFramework
             }
         }
 
+        public void ConvertToPDF(string source_document, string path_libre, string destination_output)
+        {
+            string exe_sOffice_path = path_libre + "\\App\\libreoffice\\program\\";
+            string file_name_id = Guid.NewGuid().ToString();
+            byte[] data;
+            using (WebClient client = new WebClient())
+            {
+                data = client.DownloadData(source_document);
+            }
+            File.WriteAllBytes(exe_sOffice_path + "temp\\" + file_name_id, data);
+            var pdfProcess = new Process();
+            pdfProcess.StartInfo.FileName = "soffice.exe";
+            pdfProcess.StartInfo.Arguments = "-norestore -nofirststartwizard -headless -convert-to pdf  \"temp\\" + file_name_id + "\" -outdir \"converted\"";
+            pdfProcess.StartInfo.WorkingDirectory = exe_sOffice_path;
+            pdfProcess.Start();
+            pdfProcess.WaitForExit();
+            File.Copy(exe_sOffice_path + "converted\\" + file_name_id + ".pdf", destination_output);
+        }
+
+        public static string TranslateDay(string day_origin, string culture = null)
+        {
+            DayOfWeek day = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), day_origin);
+            var cultureInfo = new CultureInfo((string.IsNullOrEmpty(culture)) ? "id-ID" : culture);
+            var dateTimeInfo = cultureInfo.DateTimeFormat;
+            return dateTimeInfo.GetDayName(day);
+        }
+
         public void Dispose()
         {
-            
+
         }
     }
 
@@ -524,7 +550,7 @@ namespace LibraryFramework
             byte[] hash = PBKDF2(password, salt, PBKDF2_ITERATIONS, HASH_BYTES);
 
             // format: algorithm:iterations:hashSize:salt:hash
-            String parts = 
+            String parts =
                 Convert.ToBase64String(salt) +
                 ":" +
                 Convert.ToBase64String(hash);
@@ -723,7 +749,46 @@ namespace LibraryFramework
 
         public void Dispose()
         {
-            
+
         }
     }
+
+    #region GzipCompression
+
+    public class GzipCompression : ActionFilterAttribute
+    {
+        byte[] ObjectToByteArray(object obj)
+        {
+            if (obj == null)
+                return null;
+            BinaryFormatter bf = new BinaryFormatter();
+            using (MemoryStream ms = new MemoryStream())
+            {
+                bf.Serialize(ms, obj);
+                return ms.ToArray();
+            }
+        }
+
+        public override void OnActionExecuted(HttpActionExecutedContext actionContext)
+        {
+            try
+            {
+                var content = actionContext.Response.Content;
+                var bytes = content == null ? null : content.ReadAsByteArrayAsync().Result;
+                var zlibbedContent = bytes == null ? new byte[0] : Services.GzipByte(bytes);
+                actionContext.Response.Content = new ByteArrayContent(zlibbedContent);
+                actionContext.Response.Content.Headers.Remove("Content-Type");
+                actionContext.Response.Content.Headers.Add("Content-encoding", "gzip");
+                actionContext.Response.Content.Headers.Add("Content-Type", "application/json");
+            }
+            catch (Exception ex)
+            {
+                var content = new { StatusCode = HttpStatusCode.InternalServerError, Message = ex.Message };
+                actionContext.Response = new HttpResponseMessage { Content = new ObjectContent(content.GetType(), content, new JsonMediaTypeFormatter()), StatusCode = HttpStatusCode.InternalServerError };
+            }
+            base.OnActionExecuted(actionContext);
+        }
+    }
+    
+    #endregion
 }
