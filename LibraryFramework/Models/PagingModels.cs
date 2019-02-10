@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -21,13 +22,23 @@ namespace LibraryFramework.Models.Paging
             SortField = "Id";
             SortOrder = Paging.SortOrder.ASC.ToString();
         }
+
+        [JsonProperty(PropertyName = "currentPage")]
         public int CurrentPage { get; set; }
+        [JsonProperty(PropertyName = "totalData")]
         public int TotalData { get; set; }
-        public int TotalPage { get; set; }
+        [JsonProperty(PropertyName = "totalPages")]
+        public int TotalPages { get; set; }
+        [JsonProperty(PropertyName = "pageSize")]
         public int PageSize { get; set; }
+        [JsonProperty(PropertyName = "searchString")]
         public string SearchString { get; set; }
+        [JsonProperty(PropertyName = "sortField")]
         public string SortField { get; set; }
+        [JsonProperty(PropertyName = "sortOrder")]
         public string SortOrder { get; set; }
+
+        [JsonIgnore]
         public string Sort
         {
             get
@@ -45,7 +56,9 @@ namespace LibraryFramework.Models.Paging
             QueryOptions = queryOptions;
         }
 
+        [JsonProperty(PropertyName = "queryOptions")]
         public QueryOptions QueryOptions { get; private set; }
+        [JsonProperty(PropertyName = "results")]
         public List<T> Results { get; private set; }
     }
 }

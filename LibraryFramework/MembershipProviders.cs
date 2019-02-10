@@ -161,7 +161,7 @@ namespace LibraryFramework
                 {
                     parameterQueryStrings.Clear();
                     parameterQueryStrings.Add(new ParameterQueryString { Name = "@user_name", Value = loginBinding.UserName.ToUpper(), DbType = SqlDbType.NVarChar });
-                    DataTable dt_Auth = connection.OpenDataTable("SELECT DISTINCT password_hash, security_stamp FROM Membership_User WHERE UPPER(user_name) = @user_name", parameterQueryStrings);
+                    DataTable dt_Auth = connection.OpenDataTable("SELECT DISTINCT password_hash, security_stamp, email_confirmed FROM Membership_User WHERE UPPER(user_name) = @user_name", parameterQueryStrings);
                     //var password_hash = Services.Decrypt(dt_Auth.Rows[0]["password_hash"].ToString(), dt_Auth.Rows[0]["security_stamp"].ToString());
                     if (!PasswordStorage.VerifyPassword(loginBinding.Password, dt_Auth.Rows[0]["password_hash"].ToString()))
                     {
@@ -170,8 +170,13 @@ namespace LibraryFramework
                     }
                     else
                     {
-                        connection.ExecuteQuery("UPDATE Membership_User SET lockout_enabled = 0 WHERE user_name = @user_name", parameterQueryStrings);
-                        validationModel = new ValidationModel { IsValid = true, Message = "Authentication success." };
+                        if (!bool.Parse(dt_Auth.Rows[0]["email_confirmed"].ToString()))
+                            validationModel = new ValidationModel { IsValid = false, Message = "Account must be verified." };
+                        else
+                        {
+                            connection.ExecuteQuery("UPDATE Membership_User SET lockout_enabled = 0 WHERE user_name = @user_name", parameterQueryStrings);
+                            validationModel = new ValidationModel { IsValid = true, Message = "Authentication success." };
+                        }
                     }
                 }
             }
@@ -210,7 +215,7 @@ namespace LibraryFramework
                         if (dt_user.Rows.Count > 0)
                             security_stamp = dt_user.Rows[0][0].ToString();
                         parameterQueryStrings.Clear();
-                        parameterQueryStrings.Add(new ParameterQueryString { Name = "@password_hash", Value = Services.Encrypt(changePasswordBinding.NewPassword, security_stamp) });
+                        parameterQueryStrings.Add(new ParameterQueryString { Name = "@password_hash", Value = PasswordStorage.CreateHash(changePasswordBinding.NewPassword) });
                         parameterQueryStrings.Add(new ParameterQueryString { Name = "@id", Value = user_detail.Id });
                         connection.ExecuteQuery("UPDATE Membership_User SET password_hash = @password_hash WHERE id = @id", parameterQueryStrings);
                         validationModel = new ValidationModel { IsValid = true };
@@ -258,11 +263,11 @@ namespace LibraryFramework
             {
                 string user_id = token_list[0];
                 DateTime issued_date = new DateTime();
-                if (!DateTime.TryParse(token_list[1], out issued_date))
+                if (!DateTime.TryParse(token_list[1].Replace("_", " "), out issued_date))
                     validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
                 else
                 {
-                    issued_date = DateTime.Parse(token_list[1]);
+                    issued_date = DateTime.Parse(token_list[1].Replace("_", " "));
                     if ((DateTime.Now - issued_date).Hours > 3)
                         validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
                     else
@@ -297,11 +302,11 @@ namespace LibraryFramework
                 else
                 {
                     DateTime issued_date = new DateTime();
-                    if (!DateTime.TryParse(token_list[1], out issued_date))
+                    if (!DateTime.TryParse(token_list[3].Replace("_", " "), out issued_date))
                         validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
                     else
                     {
-                        issued_date = DateTime.Parse(token_list[1]);
+                        issued_date = DateTime.Parse(token_list[3].Replace("_", " "));
                         if ((DateTime.Now - issued_date).Hours > 3)
                             validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
                         else
@@ -546,8 +551,15 @@ namespace LibraryFramework
                             parameterQueryStrings.Clear();
                             parameterQueryStrings.Add(new ParameterQueryString { Name = "@user_id", Value = user_id.ToUpper() });
                             parameterQueryStrings.Add(new ParameterQueryString { Name = "@role_id", Value = role_id.ToUpper() });
-                            connection.ExecuteQuery("INSERT INTO Membership_User_Role (user_id, role_id) VALUES (@user_id, @role_id)", parameterQueryStrings);
-                            validationModel = new ValidationModel { IsValid = true, Message = null };
+
+                            dt_Exist = connection.OpenDataTable("SELECT * FROM Membership_User_Role WHERE user_id = @user_id AND role_id = @role_id", parameterQueryStrings);
+                            if (dt_Exist.Rows.Count > 0)
+                                validationModel = new ValidationModel { IsValid = false, Message = "User has been registered to this role." };
+                            else
+                            {
+                                connection.ExecuteQuery("INSERT INTO Membership_User_Role (user_id, role_id) VALUES (@user_id, @role_id)", parameterQueryStrings);
+                                validationModel = new ValidationModel { IsValid = true, Message = null };
+                            }
                         }
                         catch (Exception ex)
                         {
