@@ -1,4 +1,6 @@
 ﻿using LibraryFramework.Models;
+using LibraryFramework.Models.Paging;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -14,7 +16,9 @@ using System.Reflection;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using System.Web;
 using System.Web.Http.Filters;
+using System.Web.Mvc;
 
 namespace LibraryFramework
 {
@@ -26,6 +30,7 @@ namespace LibraryFramework
         static string[] roman2 = { "CM", "DCCC", "DCC", "DC", "D", "CD", "CCC", "CC", "C" };
         static string[] roman3 = { "XC", "LXXX", "LXX", "LX", "L", "XL", "XXX", "XX", "X" };
         static string[] roman4 = { "IX", "VIII", "VII", "VI", "V", "IV", "III", "II", "I" };
+        private static Random random = new Random();
 
         public Services()
         {
@@ -144,6 +149,13 @@ namespace LibraryFramework
             {
                 throw new Exception("Error in base64Decode" + ex.Message);
             }
+        }
+        
+        public static string RandomString(int length)
+        {
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz/?'()^$%!#";
+            return new string(Enumerable.Repeat(chars, length)
+              .Select(s => s[random.Next(s.Length)]).ToArray());
         }
 
         #endregion
@@ -358,6 +370,17 @@ namespace LibraryFramework
                 }
             }
             return obj;
+        }
+
+        public static DateTime UtcToLocalTime(DateTime date_input)
+        {
+            DateTime runtimeKnowsThisIsUtc = DateTime.SpecifyKind(date_input, DateTimeKind.Utc);
+            return runtimeKnowsThisIsUtc.ToLocalTime();
+        }
+
+        public static DateTime UtcToLocalTime(DateTime date_input, int date_offset)
+        {
+            return date_input.AddHours(date_offset);
         }
 
         public void Dispose()
@@ -784,7 +807,7 @@ namespace LibraryFramework
 
     #region GzipCompression
 
-    public class GzipCompression : ActionFilterAttribute
+    public class GzipCompression : System.Web.Http.Filters.ActionFilterAttribute
     {
         byte[] ObjectToByteArray(object obj)
         {
@@ -818,6 +841,178 @@ namespace LibraryFramework
             base.OnActionExecuted(actionContext);
         }
     }
-    
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class GenerateResultListFilterAttribute : System.Web.Mvc.FilterAttribute, IResultFilter
+    {
+        private readonly Type _sourceType;
+        private readonly Type _destinationType;
+
+        public GenerateResultListFilterAttribute(Type sourceType, Type destinationType)
+        {
+            _sourceType = sourceType;
+            _destinationType = destinationType;
+        }
+
+        public void OnResultExecuted(ResultExecutedContext filterContext)
+        {
+
+        }
+
+        public void OnResultExecuting(ResultExecutingContext filterContext)
+        {
+            var model = filterContext.Controller.ViewData.Model;
+            var resultListGenericType = typeof(ResultList<>).MakeGenericType(new Type[] { _destinationType });
+
+            var queryOptions = filterContext.Controller.ViewData.ContainsKey("QueryOptions") ?
+                filterContext.Controller.ViewData["QueryOptions"] :
+                new QueryOptions();
+
+            var resultList = Activator.CreateInstance(resultListGenericType, model, queryOptions);
+
+            filterContext.Controller.ViewData.Model = resultList;
+        }
+    }
+
+    #endregion
+
+    #region Knockout
+
+    public static class HtmlHelperExtensions
+    {
+        public static HtmlString HtmlConvertToJson(this HtmlHelper htmlHelper, object model)
+        {
+            var settings = new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                Formatting = Formatting.Indented
+            };
+
+            return new HtmlString(JsonConvert.SerializeObject(model, settings));
+        }
+
+        public static MvcHtmlString BuildKnockoutSortableLink(this HtmlHelper htmlHelper,
+        string fieldName, string actionName, string sortField)
+        {
+            var urlHelper = new UrlHelper(htmlHelper.ViewContext.RequestContext);
+
+            return new MvcHtmlString(string.Format(
+                "<a href=\"{0}\" data-bind=\"click: pagingService.sortEntitiesBy\"" +
+                " data-sort-field=\"{1}\">{2} " +
+                "<span data-bind=\"css: pagingService.buildSortIcon('{1}')\"></span></a>",
+                urlHelper.Action(actionName),
+                sortField,
+                fieldName));
+        }
+
+        public static MvcHtmlString BuildKnockoutNextPreviousLinks(this HtmlHelper htmlHelper, string actionName)
+        {
+            var urlHelper = new UrlHelper(htmlHelper.ViewContext.RequestContext);
+
+            return new MvcHtmlString(string.Format(
+    "<nav>" +
+    "    <ul class=\"pager\">" +
+    "        <li data-bind=\"css: pagingService.buildPreviousClass()\">" +
+    "           <a href=\"{0}\" data-bind=\"click: pagingService.previousPage\"><span class=\"fa fa-caret-left\"></span> Previous</a></li>" +
+    "        <li data-bind=\"css: pagingService.buildNextClass()\">" +
+    "           <a href=\"{0}\" data-bind=\"click: pagingService.nextPage\">Next <span class=\"fa fa-caret-right\"></span></a></li></li>" +
+    "    </ul>" +
+    "</nav>",
+            @urlHelper.Action(actionName)
+            ));
+        }
+
+        public static MvcHtmlString BuildSortableLink(this HtmlHelper htmlHelper,
+            string fieldName, string actionName, string sortField, QueryOptions queryOptions)
+        {
+            var urlHelper = new UrlHelper(htmlHelper.ViewContext.RequestContext);
+
+            var isCurrentSortField = queryOptions.SortField == sortField;
+
+            return new MvcHtmlString(string.Format("<a href=\"{0}\">{1} {2}</a>",
+                urlHelper.Action(actionName,
+                new
+                {
+                    SortField = sortField,
+                    SortOrder = (isCurrentSortField
+                                && queryOptions.SortOrder == Models.Paging.SortOrder.ASC.ToString())
+                            ? Models.Paging.SortOrder.DESC : Models.Paging.SortOrder.ASC
+                }),
+                fieldName,
+                BuildSortIcon(isCurrentSortField, queryOptions)));
+        }
+
+        private static string BuildSortIcon(bool isCurrentSortField, QueryOptions queryOptions)
+        {
+            string sortIcon = "sort";
+
+            if (isCurrentSortField)
+            {
+                sortIcon += "-by-alphabet";
+                if (queryOptions.SortOrder == Models.Paging.SortOrder.DESC.ToString())
+                    sortIcon += "-alt";
+            }
+
+            return string.Format("<span class=\"{0} {1}{2}\"></span>",
+                "glyphicon", "glyphicon-", sortIcon);
+        }
+
+        public static MvcHtmlString BuildNextPreviousLinks(this HtmlHelper htmlHelper, QueryOptions queryOptions, string actionName)
+        {
+            var urlHelper = new UrlHelper(htmlHelper.ViewContext.RequestContext);
+
+            return new MvcHtmlString(string.Format(
+    "<nav>" +
+    "    <ul class=\"pager\">" +
+    "        <li class=\"previous {0}\">{1}</li>" +
+    "        <li class=\"next {2}\">{3}</li>" +
+    "    </ul>" +
+    "</nav>",
+            IsPreviousDisabled(queryOptions),
+            BuildPreviousLink(urlHelper, queryOptions, actionName),
+            IsNextDisabled(queryOptions),
+            BuildNextLink(urlHelper, queryOptions, actionName)
+            ));
+        }
+
+        private static string IsPreviousDisabled(QueryOptions queryOptions)
+        {
+            return (queryOptions.CurrentPage == 1)
+                ? "disabled" : string.Empty;
+        }
+
+        private static string IsNextDisabled(QueryOptions queryOptions)
+        {
+            return (queryOptions.CurrentPage == queryOptions.TotalPages)
+                ? "disabled" : string.Empty;
+        }
+
+        private static string BuildPreviousLink(UrlHelper urlHelper, QueryOptions queryOptions, string actionName)
+        {
+            return string.Format(
+                "<a href=\"{0}\"><span aria-hidden=\"true\">&larr;</span> Previous</a>",
+                urlHelper.Action(actionName, new
+                {
+                    SortOrder = queryOptions.SortOrder,
+                    SortField = queryOptions.SortField,
+                    CurrentPage = queryOptions.CurrentPage - 1,
+                    PageSize = queryOptions.PageSize
+                }));
+        }
+
+        private static string BuildNextLink(UrlHelper urlHelper, QueryOptions queryOptions, string actionName)
+        {
+            return string.Format(
+                "<a href=\"{0}\">Next <span aria-hidden=\"true\">&rarr;</span></a>",
+                urlHelper.Action(actionName, new
+                {
+                    SortOrder = queryOptions.SortOrder,
+                    SortField = queryOptions.SortField,
+                    CurrentPage = queryOptions.CurrentPage + 1,
+                    PageSize = queryOptions.PageSize
+                }));
+        }
+    }
+
     #endregion
 }
