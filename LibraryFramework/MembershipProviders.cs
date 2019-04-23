@@ -185,38 +185,50 @@ namespace LibraryFramework
 
         public ValidationModel ChangePassword(ChangePasswordBinding changePasswordBinding)
         {
-            validationModel = new ValidationModel { IsValid = false };
+            validationModel = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
             var user_detail = UserDetail(changePasswordBinding.UserName, null);
             if (user_detail == null)
-                throw new Exception("User not found.");
-            else if (!Authentication(new LoginBinding { Password = changePasswordBinding.OldPassword, UserName = changePasswordBinding.UserName }).IsValid)
-                throw new Exception("Old password incorrect.");
+                validationModel.ModelErrors.Add(new State { Field = "user", Message = "User not found in record." });
+
+            if (string.IsNullOrWhiteSpace(changePasswordBinding.OldPassword))
+            {
+                var is_valid_token = MatchingTokenForgotPassword(changePasswordBinding.Token, changePasswordBinding.UserName);
+                if (!is_valid_token.IsValid)
+                    validationModel.ModelErrors.Add(new State { Field = "token", Message = "Your link is not valid, please resend email to resetting password again." });
+            }
             else
             {
-                if (changePasswordBinding.NewPassword != changePasswordBinding.ConfirmNewPassword)
-                    throw new Exception("New password and confirm password not match.");
-                else
+                if (!Authentication(new LoginBinding { Password = changePasswordBinding.OldPassword, UserName = changePasswordBinding.UserName }).IsValid)
+                    validationModel.ModelErrors.Add(new State { Field = "old_password", Message = "Old password incorrect." });
+            }
+
+            if (changePasswordBinding.NewPassword != changePasswordBinding.ConfirmNewPassword)
+                validationModel.ModelErrors.Add(new State { Field = "confirm_password", Message = "New password and confirm password not match." });
+
+            validationModel.IsValid = validationModel.ModelErrors.Count() == 0;
+
+            if (validationModel.IsValid)
+            {
+                try
                 {
-                    try
-                    {
-                        string security_stamp = null;
-                        parameterQueryStrings.Clear();
-                        parameterQueryStrings.Add(new ParameterQueryString { Name = "@user_name", Value = changePasswordBinding.UserName });
-                        DataTable dt_user = connection.OpenDataTable("SELECT security_stamp FROM Membership_User WHERE user_name = @user_name", parameterQueryStrings);
-                        if (dt_user.Rows.Count > 0)
-                            security_stamp = dt_user.Rows[0][0].ToString();
-                        parameterQueryStrings.Clear();
-                        parameterQueryStrings.Add(new ParameterQueryString { Name = "@password_hash", Value = PasswordStorage.CreateHash(changePasswordBinding.NewPassword) });
-                        parameterQueryStrings.Add(new ParameterQueryString { Name = "@id", Value = user_detail.Id });
-                        connection.ExecuteQuery("UPDATE Membership_User SET password_hash = @password_hash WHERE id = @id", parameterQueryStrings);
-                        validationModel = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
-                    }
-                    catch (Exception ex)
-                    {
-                        validationModel = new ValidationModel { IsValid = false, Message = ex.Message, ModelErrors = new List<State>() };
-                    }
+                    string security_stamp = null;
+                    parameterQueryStrings.Clear();
+                    parameterQueryStrings.Add(new ParameterQueryString { Name = "@user_name", Value = changePasswordBinding.UserName });
+                    DataTable dt_user = connection.OpenDataTable("SELECT security_stamp FROM Membership_User WHERE user_name = @user_name", parameterQueryStrings);
+                    if (dt_user.Rows.Count > 0)
+                        security_stamp = dt_user.Rows[0][0].ToString();
+                    parameterQueryStrings.Clear();
+                    parameterQueryStrings.Add(new ParameterQueryString { Name = "@password_hash", Value = PasswordStorage.CreateHash(changePasswordBinding.NewPassword) });
+                    parameterQueryStrings.Add(new ParameterQueryString { Name = "@id", Value = user_detail.Id });
+                    connection.ExecuteQuery("UPDATE Membership_User SET password_hash = @password_hash WHERE id = @id", parameterQueryStrings);
+                    validationModel = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
+                }
+                catch (Exception ex)
+                {
+                    validationModel = new ValidationModel { IsValid = false, Message = ex.Message, ModelErrors = new List<State>() };
                 }
             }
+
             return validationModel;
         }
 
@@ -242,7 +254,7 @@ namespace LibraryFramework
 
         public ValidationModel MatchingTokenForgotPassword(string token_, string userName)
         {
-            validationModel = new ValidationModel { IsValid = true };
+            validationModel = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
             if (string.IsNullOrEmpty(token_) && string.IsNullOrEmpty(userName))
                 validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
             token_ = Services.Base64Decode(token_);

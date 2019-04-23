@@ -383,6 +383,15 @@ namespace LibraryFramework
             return date_input.AddHours(date_offset);
         }
 
+        public static string GetMimeTypeByWindowsRegistry(string fileNameOrExtension)
+        {
+            string mimeType = "application/unknown";
+            string ext = (fileNameOrExtension.Contains(".")) ? Path.GetExtension(fileNameOrExtension).ToLower() : "." + fileNameOrExtension;
+            Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(ext);
+            if (regKey != null && regKey.GetValue("Content Type") != null) mimeType = regKey.GetValue("Content Type").ToString();
+            return mimeType;
+        }
+
         public void Dispose()
         {
 
