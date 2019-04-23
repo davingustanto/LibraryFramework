@@ -202,6 +202,11 @@ namespace LibraryFramework
                     validationModel.ModelErrors.Add(new State { Field = "old_password", Message = "Old password incorrect." });
             }
 
+            if (string.IsNullOrWhiteSpace(changePasswordBinding.NewPassword))
+                validationModel.ModelErrors.Add(new State { Field = "new_password", Message = "New password must be filled." });
+            if (string.IsNullOrWhiteSpace(changePasswordBinding.ConfirmNewPassword))
+                validationModel.ModelErrors.Add(new State { Field = "new_password", Message = "New confirm password must be filled." });
+
             if (changePasswordBinding.NewPassword != changePasswordBinding.ConfirmNewPassword)
                 validationModel.ModelErrors.Add(new State { Field = "confirm_password", Message = "New password and confirm password not match." });
 
