@@ -156,7 +156,7 @@ namespace LibraryFramework
             else
             {
                 if (!IsUserNameRegistered(loginBinding.UserName))
-                    validationModel = new ValidationModel { IsValid = false, Message = "Username not registered." };
+                    validationModel = new ValidationModel { IsValid = false, Message = "Username not registered.", ModelErrors = new List<State>() };
                 else
                 {
                     parameterQueryStrings.Clear();
@@ -166,16 +166,16 @@ namespace LibraryFramework
                     if (!PasswordStorage.VerifyPassword(loginBinding.Password, dt_Auth.Rows[0]["password_hash"].ToString()))
                     {
                         connection.ExecuteQuery("UPDATE Membership_User SET lockout_enabled = (lockout_enabled + 1) WHERE user_name = @user_name", parameterQueryStrings);
-                        validationModel = new ValidationModel { IsValid = false, Message = "Username or password incorrect." };
+                        validationModel = new ValidationModel { IsValid = false, Message = "Username or password incorrect.", ModelErrors = new List<State>() };
                     }
                     else
                     {
                         if (!bool.Parse(dt_Auth.Rows[0]["email_confirmed"].ToString()))
-                            validationModel = new ValidationModel { IsValid = false, Message = "Account must be verified." };
+                            validationModel = new ValidationModel { IsValid = false, Message = "Account must be verified.", ModelErrors = new List<State>() };
                         else
                         {
                             connection.ExecuteQuery("UPDATE Membership_User SET lockout_enabled = 0 WHERE user_name = @user_name", parameterQueryStrings);
-                            validationModel = new ValidationModel { IsValid = true, Message = "Authentication success." };
+                            validationModel = new ValidationModel { IsValid = true, Message = "Authentication success.", ModelErrors = new List<State>() };
                         }
                     }
                 }
@@ -190,7 +190,7 @@ namespace LibraryFramework
             if (user_detail == null)
                 validationModel.ModelErrors.Add(new State { Field = "user", Message = "User not found in record." });
 
-            if (string.IsNullOrWhiteSpace(changePasswordBinding.OldPassword))
+            if (string.IsNullOrWhiteSpace(changePasswordBinding.OldPassword) && !string.IsNullOrWhiteSpace(changePasswordBinding.Token))
             {
                 var is_valid_token = MatchingTokenForgotPassword(changePasswordBinding.Token, changePasswordBinding.UserName);
                 if (!is_valid_token.IsValid)
@@ -204,11 +204,14 @@ namespace LibraryFramework
 
             if (string.IsNullOrWhiteSpace(changePasswordBinding.NewPassword))
                 validationModel.ModelErrors.Add(new State { Field = "new_password", Message = "New password must be filled." });
-            if (string.IsNullOrWhiteSpace(changePasswordBinding.ConfirmNewPassword))
-                validationModel.ModelErrors.Add(new State { Field = "new_password", Message = "New confirm password must be filled." });
 
-            if (changePasswordBinding.NewPassword != changePasswordBinding.ConfirmNewPassword)
-                validationModel.ModelErrors.Add(new State { Field = "confirm_password", Message = "New password and confirm password not match." });
+            if (string.IsNullOrWhiteSpace(changePasswordBinding.ConfirmNewPassword))
+                validationModel.ModelErrors.Add(new State { Field = "confirm_password", Message = "New confirm password must be filled." });
+            else
+            {
+                if (changePasswordBinding.NewPassword != changePasswordBinding.ConfirmNewPassword)
+                    validationModel.ModelErrors.Add(new State { Field = "confirm_password", Message = "New password and confirm password not match." });
+            }
 
             validationModel.IsValid = validationModel.ModelErrors.Count() == 0;
 
@@ -261,31 +264,31 @@ namespace LibraryFramework
         {
             validationModel = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
             if (string.IsNullOrEmpty(token_) && string.IsNullOrEmpty(userName))
-                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
             token_ = Services.Base64Decode(token_);
             string[] token_list = token_.Split(' ');
             if (token_list.Count() < 2)
-                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
             else
             {
                 string user_id = token_list[0];
                 DateTime issued_date = new DateTime();
                 if (!DateTime.TryParse(token_list[1].Replace("_", " "), out issued_date))
-                    validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                    validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
                 else
                 {
                     issued_date = DateTime.Parse(token_list[1].Replace("_", " "));
                     if ((DateTime.Now - issued_date).Hours > 3)
-                        validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                        validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
                     else
                     {
                         var user_data = UserDetail(userName, null);
                         if (user_data == null)
-                            validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                            validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
                         else
                         {
                             if (user_data.Id.ToUpper() != user_id.ToUpper())
-                                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code." };
+                                validationModel = new ValidationModel { IsValid = false, Message = "Invalid code.", ModelErrors = new List<State>() };
                         }
                     }
                 }
@@ -1100,7 +1103,7 @@ namespace LibraryFramework
 
         public static ValidationModel IsLoginValid(LoginBinding loginBinding)
         {
-            var model_return = new ValidationModel { IsValid = true };
+            var model_return = new ValidationModel { IsValid = true, Message = null, ModelErrors = new List<State>() };
             if (loginBinding == null)
                 return new ValidationModel { IsValid = false, Message = "Parameter must be passed." };
             else
